@@ -7,7 +7,7 @@ setup(
     description='A python decorator for creating ActionProvider RO-crates within a Globus flow',
     author='Augustus Ellerm',
     license='MIT',
-    install_requires=['rocrate'],
+    install_requires=['rocrate', 'pydantic'],
     setup_requires=['pytest-runner'],
     test_requires=['pytest==4.4.1'],
     test_suite='tests',
