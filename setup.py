@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 setup(
     name='lp_ap_tools',
     packages=find_packages(),
-    version='0.1.0',
+    version='0.1.1',
     description='A python decorator for creating ActionProvider RO-crates within a Globus flow',
     author='Augustus Ellerm',
     license='MIT',
