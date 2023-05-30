@@ -3,6 +3,7 @@ import time
 import os
 from rocrate.rocrate import ROCrate
 from pydantic import Field, BaseModel, create_model # include pydantic in new tooling
+from globus_action_provider_tools.data_types import ActionProviderDescription, ActionRequest, ActionStatus
 
 # LP fields to be included within AP input_schema
 # TODO: Build schema, and provide flexibility in chosen fields. 
@@ -15,7 +16,7 @@ def union_fields(origin_class: BaseModel, LP_fields):
    original_fields = {name: (field.outer_type_, field.field_info) for name, field in origin_class.__fields__.items()}
    return create_model(type(origin_class).__name__, **{**original_fields, **LP_FIELDS})
 
-# Decorator for creating LP RO-Crates
+# Decorator integrating computation with RO-Crate
 def LP_artefact(dir_struct: dict,
                 description: str = "description",
                 creator: str = "creator"):
