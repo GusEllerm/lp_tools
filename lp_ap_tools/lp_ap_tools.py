@@ -2,6 +2,9 @@ import functools
 import time
 import os
 import globus_sdk 
+import shutil
+import threading
+
 from globus_sdk import TransferClient, TransferData, LocalGlobusConnectPersonal
 from globus_action_provider_tools.data_types import ActionProviderDescription, ActionRequest, ActionStatus
 from globus_action_provider_tools.flask import ActionProviderBlueprint
@@ -21,6 +24,7 @@ from pydantic import Field, BaseModel, create_model
 # TODO: Build schema, and provide flexibility in chosen fields. 
 LP_FIELDS = {
    'orchestration_node': (str, Field(..., title="Orchestration Node UUID", description="Collects LP artefacts and produces the final Orchestration crate artefact")),
+   'article_name': (str, Field(..., title="Article Name", description="Name of the academic article")),
 }
 
 # returns a new model with the union of the original class 
@@ -153,6 +157,7 @@ def create_method(crate: ROCrate,
 def transfer_crate(ap_auth: AuthState,
                    crate_path: str,
                    orchestration_node: str,
+                   article_name: str,
                    ap_status: ActionStatus,
                    ap_apbt: ActionProviderBlueprint):
    
@@ -163,13 +168,29 @@ def transfer_crate(ap_auth: AuthState,
    transfer_token = dependent_tokens.by_resource_server['transfer.api.globus.org']['access_token']
    # Transfer crate to management endpoint
    transfer_client = TransferClient(authorizer=globus_sdk.AccessTokenAuthorizer(transfer_token))
+
    data = TransferData(transfer_client,
                        source_endpoint=local_gcp.endpoint_id,
                        destination_endpoint=orchestration_node,
-                       label=f"{ap_apbt.name}_AP crate transfer: crate_{ap_status.action_id}")
-   data.add_item(crate_path, f"crate_{ap_status.action_id}", recursive=True)
+                       label=f"{ap_apbt.name}_AP crate transfer: crate_{ap_status.action_id} for article: {article_name}")
+   data.add_item(crate_path, f"{article_name}/action_{ap_status.action_id}", recursive=True)
    transfer_result = transfer_client.submit_transfer(data)
    print(f"Transfering crate for job {ap_status.action_id}. Transfer Job ID: {transfer_result['task_id']}")
+
+   # TODO: this is a blocking call for as long as the transfer is not complete. 
+   # Parse by status (e.g. soft failure states should be dropped), and make non-blocking. 
+
+   def cleanup():
+      # Check status of transfer periodically untill complete. Then remove local crate. 
+      while not transfer_client.task_wait(transfer_result["task_id"], polling_interval=20, timeout=300):
+         pass
+
+      # Delete crate
+      print(f"Transfer {transfer_result['task_id']} sucssess. Removing local crate.")
+      shutil.rmtree(crate_path)
+
+   threading.Thread(target=cleanup).start()   
+
 
 # -----------------------------------------------
 # ------------ Primary decorator  ---------------
@@ -190,7 +211,7 @@ def LP_artefact(dir_struct: dict):
          # --------------------------------------------------------
 
          # Create RO-Crate
-         crate_name = f"crate_{ap_status.action_id}"
+         crate_name = f"action_{ap_status.action_id}"
          crate = ROCrate()
          crate.name = crate_name
          crate.description = f"LP artefact for action {ap_status.action_id}"
@@ -238,11 +259,12 @@ def LP_artefact(dir_struct: dict):
          action["total_time"] = total_time
 
          # Write RO-Crate to disk
-         crate.write_crate(os.path.join(dir_struct["crates"], f"crate_{ap_status.action_id}"))
-         # # Transfer crate to management endpoint
+         crate.write_crate(os.path.join(dir_struct["crates"], crate_name))
+         # Transfer crate to management endpoint
          transfer_crate(ap_auth=ap_auth,
                         crate_path=os.path.join(dir_struct["crates"], crate_name), 
                         orchestration_node=ap_request.body["orchestration_node"],
+                        article_name=ap_request.body['article_name'],
                         ap_status=ap_status,
                         ap_apbt=ap_apbt)
          return computation
